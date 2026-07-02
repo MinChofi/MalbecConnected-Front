@@ -74,7 +74,8 @@ export const apiClient = async <T>(
   let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
+    const requestUrl  = `${API_BASE_URL}${normalizedPath}`;
+    response = await fetch(requestUrl , {
       ...options,
       headers,
       body:
