@@ -7,11 +7,13 @@ import { getPublications, type Publication } from "~/lib/publications";
 type PublicationsStatus = "loading" | "success" | "error";
 
 const getPublicationTimestamp = (publication: Publication) => {
-  if (!publication.createdAt) {
+  const date = publication.publicationDate ?? publication.createdAt;
+
+  if (!date) {
     return null;
   }
 
-  const timestamp = new Date(publication.createdAt).getTime();
+  const timestamp = new Date(date).getTime();
 
   return Number.isNaN(timestamp) ? null : timestamp;
 };

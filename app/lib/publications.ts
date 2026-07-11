@@ -23,6 +23,7 @@ export interface Publication {
   type?: string;
   price?: number;
   year?: number;
+  publicationDate?: string;
   averageRating: number;
   commentsCount: number;
   ratingsCount: number;
@@ -32,8 +33,8 @@ export interface Publication {
 }
 
 export interface CreatePublicationCommentInput {
-  name: string;
-  comment: string;
+  authorName: string;
+  content: string;
   rating: number;
 }
 
@@ -47,6 +48,7 @@ export interface PublicationMutationInput {
   type?: string;
   price?: number;
   year?: number;
+  publicationDate?: string;
 }
 
 const isRecord = (value: unknown): value is ApiRecord =>
@@ -173,6 +175,7 @@ const normalizeComment = (
     id,
     name:
       getString(comment, [
+        "authorName",
         "name",
         "author",
         "username",
@@ -288,6 +291,11 @@ const normalizePublication = (publication: unknown): Publication | null => {
     type: getString(publication, ["type", "tipo", "productType"]),
     price: getNumber(publication, ["price", "precio"]),
     year: getNumber(publication, ["year", "anio", "año", "vintage"]),
+    publicationDate: getString(publication, [
+      "publicationDate",
+      "date",
+      "createdAt",
+    ]),
     averageRating,
     commentsCount,
     ratingsCount,

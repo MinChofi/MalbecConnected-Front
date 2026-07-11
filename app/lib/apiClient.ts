@@ -17,8 +17,13 @@ interface ApiClientOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
 }
 
+type ApiRecord = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is ApiRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 const getErrorMessageFromData = (data: unknown) => {
-  if (typeof data === "object" && data !== null && "message" in data) {
+  if (isRecord(data) && "message" in data) {
     const message = data.message;
 
     if (typeof message === "string") {
@@ -31,6 +36,33 @@ const getErrorMessageFromData = (data: unknown) => {
   }
 
   return "Ocurrió un error inesperado";
+};
+
+export const getFieldErrors = (error: unknown): Record<string, string> => {
+  if (!(error instanceof ApiError) || !isRecord(error.data)) {
+    return {};
+  }
+
+  const { errors } = error.data;
+
+  if (!isRecord(errors)) {
+    return {};
+  }
+
+  return Object.entries(errors).reduce<Record<string, string>>(
+    (fieldErrors, [field, message]) => {
+      if (typeof message === "string" && message.trim() !== "") {
+        fieldErrors[field] = message;
+      }
+
+      if (Array.isArray(message) && typeof message[0] === "string") {
+        fieldErrors[field] = message[0];
+      }
+
+      return fieldErrors;
+    },
+    {}
+  );
 };
 
 export const getErrorMessage = (error: unknown) => {

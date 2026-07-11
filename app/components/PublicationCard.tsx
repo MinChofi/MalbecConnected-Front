@@ -25,8 +25,8 @@ const getContactItems = () => {
     businessName: profile.fantasyName.trim(),
     items: [
       { label: "Correo", value: profile.contactEmail.trim() },
-      { label: "Direccion", value: profile.address.trim() },
-      { label: "Telefono", value: profile.phone.trim() },
+      { label: "Dirección", value: profile.address.trim() },
+      { label: "Teléfono", value: profile.phone.trim() },
     ].filter((item) => item.value),
   };
 };

@@ -5,7 +5,7 @@ import { apiClient, getErrorMessage } from "~/lib/apiClient";
 import {
   getStoredUser,
   getToken,
-  saveToken,
+  setSession,
   type AuthUser,
 } from "~/lib/auth";
 
@@ -27,7 +27,7 @@ const getRedirectPath = (state: unknown) => {
     return state.from;
   }
 
-  return "/dashboard";
+  return "/";
 };
 
 export default function Login() {
@@ -110,7 +110,7 @@ export default function Login() {
         },
       });
 
-      saveToken(response.token);
+      setSession(response.token, response.user);
       void navigate(redirectPath, { replace: true });
     } catch (error) {
       setError(getErrorMessage(error));
