@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { apiClient, getErrorMessage } from "~/lib/apiClient";
-import { saveToken, type AuthUser } from "~/lib/auth";
+import { setSession, type AuthUser } from "~/lib/auth";
 
 interface AuthResponse {
   message: string;
@@ -65,8 +65,8 @@ export default function Register() {
         },
       });
 
-      saveToken(response.token);
-      void navigate("/dashboard", { replace: true });
+      setSession(response.token, response.user);
+      void navigate("/", { replace: true });
     } catch (error) {
       setError(getErrorMessage(error));
     } finally {

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
-import { getErrorMessage } from "~/lib/apiClient";
+import { PublicNavbar } from "~/components/PublicChrome";
+import { ApiError, getErrorMessage } from "~/lib/apiClient";
+import { getStoredUser, type AuthUser } from "~/lib/auth";
 import {
   getBusinessProfile,
   type BusinessProfile,
@@ -45,8 +47,8 @@ const formatDate = (date?: string) => {
 const getContactItems = (businessProfile: BusinessProfile) =>
   [
     { label: "Correo", value: businessProfile.contactEmail.trim() },
-    { label: "Direccion", value: businessProfile.address.trim() },
-    { label: "Telefono", value: businessProfile.phone.trim() },
+    { label: "Dirección", value: businessProfile.address.trim() },
+    { label: "Teléfono", value: businessProfile.phone.trim() },
   ].filter((item) => item.value);
 
 export function meta() {
@@ -61,12 +63,14 @@ export function meta() {
 
 export default function PublicationDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [publication, setPublication] = useState<Publication | null>(null);
   const [businessProfile, setBusinessProfile] =
     useState<BusinessProfile>(emptyProfile);
   const [status, setStatus] = useState<DetailStatus>("loading");
   const [errorMessage, setErrorMessage] = useState("");
-  const [name, setName] = useState("");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [comment, setComment] = useState("");
   const [rating, setRating] = useState("5");
   const [formError, setFormError] = useState("");
@@ -107,29 +111,53 @@ export default function PublicationDetail() {
     setBusinessProfile(getBusinessProfile());
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    void (async () => {
+      try {
+        const user = await getStoredUser();
+
+        if (isMounted) {
+          setCurrentUser(user);
+        }
+      } catch (error) {
+        console.error("Error verificando sesion para comentar:", error);
+
+        if (isMounted) {
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingSession(false);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const requestLoginForComment = () => {
+    const shouldNavigate = window.confirm(
+      "Debés iniciar sesión para comentar. ¿Querés ir al login?"
+    );
+
+    if (shouldNavigate && id) {
+      void navigate("/login", {
+        state: { from: `/publicaciones/${id}` },
+      });
+    }
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError("");
     setSuccessMessage("");
 
-    const normalizedName = name.trim();
     const normalizedComment = comment.trim();
     const parsedRating = Number(rating);
-
-    if (!normalizedName) {
-      setFormError("Ingresá tu nombre.");
-      return;
-    }
-
-    if (!normalizedComment) {
-      setFormError("Ingresá un comentario.");
-      return;
-    }
-
-    if (!Number.isInteger(parsedRating) || parsedRating < 1 || parsedRating > 5) {
-      setFormError("La puntuación debe estar entre 1 y 5.");
-      return;
-    }
 
     if (!id) {
       setFormError("No se encontró la publicación solicitada.");
@@ -139,17 +167,53 @@ export default function PublicationDetail() {
     setIsSubmitting(true);
 
     try {
+      const sessionUser = await getStoredUser();
+
+      if (!sessionUser) {
+        setCurrentUser(null);
+        requestLoginForComment();
+        return;
+      }
+
+      setCurrentUser(sessionUser);
+
+      const authorName = sessionUser.username.trim();
+
+      if (!authorName) {
+        setFormError("No se pudo identificar tu usuario.");
+        return;
+      }
+
+      if (!normalizedComment) {
+        setFormError("Ingresá un comentario.");
+        return;
+      }
+
+      if (
+        !Number.isInteger(parsedRating) ||
+        parsedRating < 1 ||
+        parsedRating > 5
+      ) {
+        setFormError("La puntuación debe estar entre 1 y 5.");
+        return;
+      }
+
       await createPublicationComment(id, {
-        name: normalizedName,
-        comment: normalizedComment,
+        authorName,
+        content: normalizedComment,
         rating: parsedRating,
       });
-      setName("");
       setComment("");
       setRating("5");
       setSuccessMessage("Comentario publicado correctamente.");
       await loadPublication(false);
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setCurrentUser(null);
+        requestLoginForComment();
+        return;
+      }
+
       setFormError(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
@@ -164,37 +228,11 @@ export default function PublicationDetail() {
 
   return (
     <div className="min-h-screen bg-[#FCF9F6]">
-      <header className="bg-[#11332C] px-4 py-3">
-        <nav className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
-          <Link to="/" className="font-bold text-[#F2B11C]">
-            Malbec Connected
-          </Link>
-          <div className="flex flex-wrap items-center gap-4">
-            <Link
-              to="/"
-              className="text-[#F2B11C] hover:text-[#F2B11C]/70 hover:underline"
-            >
-              Inicio
-            </Link>
-            <Link
-              to="/forum"
-              className="text-[#F2B11C] hover:text-[#F2B11C]/70 hover:underline"
-            >
-              Foro
-            </Link>
-            <Link
-              to="/login"
-              className="text-[#F2B11C] hover:text-[#F2B11C]/70 hover:underline"
-            >
-              Iniciar sesión
-            </Link>
-          </div>
-        </nav>
-      </header>
+      <PublicNavbar />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         <Link
-          to="/forum"
+          to="/"
           className="text-sm font-semibold text-[#11332C] hover:text-[#F2B11C]"
         >
           Volver al foro
@@ -281,22 +319,13 @@ export default function PublicationDetail() {
                     </div>
                   ) : null}
 
-                  <div>
-                    <label
-                      htmlFor="commentName"
-                      className="text-sm font-semibold text-[#11332C]"
-                    >
-                      Nombre
-                    </label>
-                    <input
-                      id="commentName"
-                      type="text"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
-                      required
-                    />
-                  </div>
+                  <p className="rounded-md border border-[#11332C]/10 bg-[#FCF9F6] px-3 py-2 text-sm text-[#11332C]/80">
+                    {isCheckingSession
+                      ? "Verificando sesion..."
+                      : currentUser
+                        ? `Comentando como ${currentUser.username}`
+                        : "Inicia sesion para comentar con tu usuario."}
+                  </p>
 
                   <div>
                     <label
@@ -338,10 +367,14 @@ export default function PublicationDetail() {
 
                   <button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isCheckingSession}
                     className="w-full rounded-md bg-[#F2B11C] px-4 py-2 font-semibold text-[#11332C] transition hover:bg-[#d99b12] disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    {isSubmitting ? "Publicando..." : "Publicar comentario"}
+                    {isSubmitting
+                      ? "Publicando..."
+                      : isCheckingSession
+                        ? "Verificando..."
+                        : "Publicar comentario"}
                   </button>
                 </form>
               </section>

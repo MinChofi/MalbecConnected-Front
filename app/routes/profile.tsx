@@ -1,11 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { ProtectedRoute } from "~/components/ProtectedRoute";
-import { removeToken } from "~/lib/auth";
+import { getErrorMessage } from "~/lib/apiClient";
+import { clearSession } from "~/lib/auth";
 import {
+  fetchBusinessProfile,
   getBusinessProfile,
-  saveBusinessProfile,
+  updateBusinessProfile,
   type BusinessProfile,
 } from "~/lib/profile";
 
@@ -26,19 +28,19 @@ const profileFields: Array<{
 }> = [
   {
     id: "businessFantasyName",
-    label: "Nombre de fantasia",
+    label: "Nombre de fantasía",
     field: "fantasyName",
     type: "text",
   },
   {
     id: "businessAddress",
-    label: "Direccion",
+    label: "Dirección",
     field: "address",
     type: "text",
   },
   {
     id: "businessPhone",
-    label: "Telefono",
+    label: "Teléfono",
     field: "phone",
     type: "tel",
   },
@@ -73,14 +75,40 @@ function ProfileContent() {
     useState<BusinessProfile>(emptyProfile);
   const [form, setForm] = useState<BusinessProfile>(emptyProfile);
   const [isEditing, setIsEditing] = useState(false);
+  const isEditingRef = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
     const storedProfile = getBusinessProfile();
 
     setSavedProfile(storedProfile);
     setForm(storedProfile);
+
+    void (async () => {
+      try {
+        const profile = await fetchBusinessProfile();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSavedProfile(profile);
+        if (!isEditingRef.current) {
+          setForm(profile);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(getErrorMessage(error));
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const updateField = (field: ProfileField, value: string) => {
@@ -93,6 +121,8 @@ function ProfileContent() {
   const handleEdit = () => {
     setErrorMessage("");
     setSuccessMessage("");
+    setForm(savedProfile);
+    isEditingRef.current = true;
     setIsEditing(true);
   };
 
@@ -100,30 +130,50 @@ function ProfileContent() {
     setForm(savedProfile);
     setErrorMessage("");
     setSuccessMessage("");
+    isEditingRef.current = false;
     setIsEditing(false);
   };
 
-  const handleSave = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSave = async (event?: SyntheticEvent) => {
+    event?.preventDefault();
+
+    if (!isEditing) {
+      return;
+    }
+
     setErrorMessage("");
     setSuccessMessage("");
 
     const normalizedProfile = normalizeProfile(form);
 
     if (!normalizedProfile.fantasyName) {
-      setErrorMessage("Completa el nombre de fantasia antes de guardar.");
+      setErrorMessage("Completa el nombre de fantasía antes de guardar.");
+      isEditingRef.current = true;
+      setIsEditing(true);
       return;
     }
 
-    saveBusinessProfile(normalizedProfile);
-    setSavedProfile(normalizedProfile);
-    setForm(normalizedProfile);
-    setSuccessMessage("Perfil guardado correctamente.");
-    setIsEditing(false);
+    setIsSaving(true);
+
+    try {
+      const updatedProfile = await updateBusinessProfile(normalizedProfile);
+
+      setSavedProfile(updatedProfile);
+      setForm(updatedProfile);
+      setSuccessMessage("Perfil guardado correctamente.");
+      isEditingRef.current = false;
+      setIsEditing(false);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+      isEditingRef.current = true;
+      setIsEditing(true);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleLogout = () => {
-    removeToken();
+    clearSession();
     void navigate("/", { replace: true });
   };
 
@@ -175,7 +225,7 @@ function ProfileContent() {
             </div>
           ) : null}
 
-          <form onSubmit={handleSave} className="space-y-4">
+          <form className="space-y-4">
             {profileFields.map((profileField) => (
               <div key={profileField.field}>
                 <label
@@ -203,15 +253,18 @@ function ProfileContent() {
               {isEditing ? (
                 <>
                   <button
-                    type="submit"
-                    className="rounded-md bg-[#F2B11C] px-4 py-2 font-semibold text-[#11332C] hover:bg-[#d99b12]"
+                    type="button"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="rounded-md bg-[#F2B11C] px-4 py-2 font-semibold text-[#11332C] hover:bg-[#d99b12] disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    Guardar
+                    {isSaving ? "Guardando..." : "Guardar"}
                   </button>
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="rounded-md border border-[#11332C]/20 px-4 py-2 font-semibold text-[#11332C] hover:bg-[#11332C]/5"
+                    disabled={isSaving}
+                    className="rounded-md border border-[#11332C]/20 px-4 py-2 font-semibold text-[#11332C] hover:bg-[#11332C]/5 disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     Cancelar
                   </button>

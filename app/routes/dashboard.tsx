@@ -1,17 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
 } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { ConfirmModal } from "~/components/ConfirmModal";
 import { ProtectedRoute } from "~/components/ProtectedRoute";
-import { getErrorMessage } from "~/lib/apiClient";
-import { removeToken } from "~/lib/auth";
+import { getErrorMessage, getFieldErrors } from "~/lib/apiClient";
+import { clearSession, getCurrentUser } from "~/lib/auth";
 import {
   getBusinessProfile,
+  saveBusinessProfile,
   type BusinessProfile,
 } from "~/lib/profile";
 import {
@@ -23,6 +26,12 @@ import {
   type PublicationMutationInput,
 } from "~/lib/publications";
 
+const MAX_DESCRIPTION_LENGTH = 1500;
+const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+const DATA_IMAGE_URL_PATTERN = /^data:image\/(?:png|jpeg);base64,/;
+const FANTASY_NAME_ERROR =
+  "Configura el Nombre de fantasía desde Perfil antes de publicar.";
+
 type FormState = {
   title: string;
   productName: string;
@@ -31,8 +40,12 @@ type FormState = {
   category: string;
   type: string;
   price: string;
-  year: string;
+  publicationDate: string;
 };
+
+type FormErrors = Partial<
+  Record<keyof FormState | "wineryName" | "_form", string>
+>;
 
 const emptyForm: FormState = {
   title: "",
@@ -42,11 +55,26 @@ const emptyForm: FormState = {
   category: "",
   type: "",
   price: "",
-  year: "",
+  publicationDate: "",
 };
+
+const getString = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
+
+const normalizeBusinessProfile = (
+  profile?: Partial<BusinessProfile>
+): BusinessProfile => ({
+  fantasyName: getString(profile?.fantasyName),
+  address: getString(profile?.address),
+  phone: getString(profile?.phone),
+  contactEmail: getString(profile?.contactEmail),
+});
 
 const formatOptionalNumber = (value?: number) =>
   typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+
+const getPublicationDateForForm = (publication: Publication) =>
+  publication.publicationDate ?? publication.createdAt ?? new Date().toISOString();
 
 const getFormFromPublication = (publication: Publication): FormState => ({
   title: publication.title,
@@ -56,7 +84,7 @@ const getFormFromPublication = (publication: Publication): FormState => ({
   category: publication.category ?? "",
   type: publication.type ?? "",
   price: formatOptionalNumber(publication.price),
-  year: formatOptionalNumber(publication.year),
+  publicationDate: getPublicationDateForForm(publication),
 });
 
 const publicationTypeOptions = [
@@ -99,7 +127,7 @@ const getPublicationCategoryOptions = (currentCategory: string) => {
   return [...publicationCategoryOptions, normalizedCategory];
 };
 
-const parseOptionalNumber = (value: string, label: string) => {
+const parseOptionalNumber = (value: string) => {
   const normalizedValue = value.trim();
 
   if (!normalizedValue) {
@@ -109,13 +137,20 @@ const parseOptionalNumber = (value: string, label: string) => {
   const parsedValue = Number(normalizedValue);
 
   if (!Number.isFinite(parsedValue)) {
-    return { error: `${label} debe ser un número válido.` };
+    return { error: "El precio debe ser un numero valido." };
   }
 
   return { value: parsedValue };
 };
 
-const buildPayload = (form: FormState, businessProfile: BusinessProfile) => {
+const isDataImageUrl = (value: string) => DATA_IMAGE_URL_PATTERN.test(value);
+
+const buildPayload = (
+  form: FormState,
+  businessProfile: BusinessProfile,
+  editingPublication: Publication | null
+) => {
+  const errors: FormErrors = {};
   const title = form.title.trim();
   const wineryName = businessProfile.fantasyName.trim();
   const productName = form.productName.trim();
@@ -123,27 +158,54 @@ const buildPayload = (form: FormState, businessProfile: BusinessProfile) => {
   const imageUrl = form.imageUrl.trim();
   const category = form.category.trim();
   const type = form.type.trim();
-  const price = parseOptionalNumber(form.price, "El precio");
-  const year = parseOptionalNumber(form.year, "El año");
+  const price = parseOptionalNumber(form.price);
+  const publicationDate = form.publicationDate.trim() || new Date().toISOString();
+  const parsedPublicationDate = new Date(publicationDate);
+  const existingImageUrl = editingPublication?.imageUrl ?? "";
+  const imageChanged = !editingPublication || imageUrl !== existingImageUrl;
 
   if (!wineryName) {
-    return {
-      error: "Configura el nombre de fantasia desde Perfil antes de publicar.",
-    };
+    errors.wineryName = FANTASY_NAME_ERROR;
   }
 
-  if (!title || !productName || !description) {
-    return {
-      error: "Completa titulo, producto y descripcion antes de guardar.",
-    };
+  if (!title) {
+    errors.title = "El titulo es obligatorio.";
+  }
+
+  if (!productName) {
+    errors.productName = "El producto es obligatorio.";
+  }
+
+  if (!description) {
+    errors.description = "La descripcion es obligatoria.";
+  } else if (description.length > MAX_DESCRIPTION_LENGTH) {
+    errors.description = "La descripcion no puede superar los 1500 caracteres.";
+  }
+
+  if (imageUrl && !isDataImageUrl(imageUrl) && imageChanged) {
+    errors.imageUrl = "La imagen debe ser JPG o PNG.";
+  }
+
+  if (!category) {
+    errors.category = "La categoria es obligatoria.";
+  }
+
+  if (!type) {
+    errors.type = "El tipo es obligatorio.";
   }
 
   if (price.error) {
-    return { error: price.error };
+    errors.price = price.error;
+  } else if (price.value !== undefined && price.value < 0) {
+    errors.price = "El precio debe ser mayor o igual a 0.";
   }
 
-  if (year.error) {
-    return { error: year.error };
+  if (Number.isNaN(parsedPublicationDate.getTime())) {
+    errors.publicationDate = "La fecha no es valida.";
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { errors };
   }
 
   const payload: PublicationMutationInput = {
@@ -151,30 +213,38 @@ const buildPayload = (form: FormState, businessProfile: BusinessProfile) => {
     wineryName,
     productName,
     description,
+    category,
+    type,
+    publicationDate: parsedPublicationDate.toISOString(),
   };
 
-  if (imageUrl) {
+  if (imageUrl && isDataImageUrl(imageUrl) && imageChanged) {
     payload.imageUrl = imageUrl;
-  }
-
-  if (category) {
-    payload.category = category;
-  }
-
-  if (type) {
-    payload.type = type;
   }
 
   if (price.value !== undefined) {
     payload.price = price.value;
   }
 
-  if (year.value !== undefined) {
-    payload.year = year.value;
-  }
-
   return { payload };
 };
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("No se pudo leer la imagen."));
+    };
+
+    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+    reader.readAsDataURL(file);
+  });
 
 const formatCurrency = (value?: number) => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -188,21 +258,44 @@ const formatCurrency = (value?: number) => {
   }).format(value);
 };
 
+const formatDate = (date?: string) => {
+  if (!date) {
+    return null;
+  }
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(parsedDate);
+};
+
 const getContactItems = (businessProfile: BusinessProfile) =>
   [
     { label: "Correo", value: businessProfile.contactEmail.trim() },
-    { label: "Direccion", value: businessProfile.address.trim() },
-    { label: "Telefono", value: businessProfile.phone.trim() },
+    { label: "Dirección", value: businessProfile.address.trim() },
+    { label: "Teléfono", value: businessProfile.phone.trim() },
   ].filter((item) => item.value);
+
+const baseFieldClass =
+  "mt-1 w-full rounded-md border px-3 py-2 text-[#11332C] outline-none";
 
 function DashboardContent() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [publications, setPublications] = useState<Publication[]>([]);
   const [businessProfile, setBusinessProfile] =
     useState<BusinessProfile>(() => getBusinessProfile());
   const [isLoading, setIsLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [editingPublication, setEditingPublication] =
     useState<Publication | null>(null);
   const [formError, setFormError] = useState("");
@@ -211,6 +304,48 @@ function DashboardContent() {
   const [deleteTarget, setDeleteTarget] = useState<Publication | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const clearFieldError = (field: keyof FormErrors) => {
+    setFormErrors((currentErrors) => {
+      if (!currentErrors[field]) {
+        return currentErrors;
+      }
+
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const getFieldClass = (field: keyof FormErrors) =>
+    `${baseFieldClass} ${
+      formErrors[field]
+        ? "border-red-500 focus:border-red-500"
+        : "border-[#11332C]/20 focus:border-[#F2B11C]"
+    }`;
+
+  const renderFieldError = (field: keyof FormErrors) =>
+    formErrors[field] ? (
+      <p className="mt-1 text-xs font-semibold text-red-600">
+        {formErrors[field]}
+      </p>
+    ) : null;
+
+  const loadBusinessProfile = useCallback(async () => {
+    try {
+      const currentUser = await getCurrentUser();
+      const profile = normalizeBusinessProfile(currentUser.profile);
+
+      setBusinessProfile(profile);
+      saveBusinessProfile(profile);
+
+      if (profile.fantasyName.trim()) {
+        clearFieldError("wineryName");
+      }
+    } catch (error) {
+      setFormError(getErrorMessage(error));
+    }
+  }, []);
 
   const loadPublications = useCallback(async (showLoading = true) => {
     if (showLoading) {
@@ -234,20 +369,65 @@ function DashboardContent() {
   }, [loadPublications]);
 
   useEffect(() => {
-    setBusinessProfile(getBusinessProfile());
-  }, []);
+    void loadBusinessProfile();
+  }, [loadBusinessProfile]);
 
   const updateField = (field: keyof FormState, value: string) => {
     setForm((currentForm) => ({
       ...currentForm,
       [field]: value,
     }));
+    clearFieldError(field);
   };
 
   const resetForm = () => {
     setForm(emptyForm);
+    setFormErrors({});
     setEditingPublication(null);
     setFormError("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    setFormSuccess("");
+
+    if (!file) {
+      return;
+    }
+
+    if (file.type !== "image/png" && file.type !== "image/jpeg") {
+      setFormErrors((currentErrors) => ({
+        ...currentErrors,
+        imageUrl: "La imagen debe ser JPG o PNG.",
+      }));
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      setFormErrors((currentErrors) => ({
+        ...currentErrors,
+        imageUrl: "La imagen no puede superar los 2 MB.",
+      }));
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const imageUrl = await readFileAsDataUrl(file);
+      updateField("imageUrl", imageUrl);
+    } catch (error) {
+      setFormErrors((currentErrors) => ({
+        ...currentErrors,
+        imageUrl: getErrorMessage(error),
+      }));
+      event.target.value = "";
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -255,28 +435,33 @@ function DashboardContent() {
     setFormError("");
     setFormSuccess("");
 
-    const result = buildPayload(form, businessProfile);
+    const result = buildPayload(form, businessProfile, editingPublication);
 
-    if (result.error || !result.payload) {
-      setFormError(result.error ?? "Revisá los datos ingresados.");
+    if (result.errors || !result.payload) {
+      setFormErrors(result.errors ?? {});
+      setFormError(result.errors?._form ?? "Revisa los datos ingresados.");
       return;
     }
 
+    setFormErrors({});
     setIsSaving(true);
 
     try {
       if (editingPublication) {
         await updatePublication(editingPublication.id, result.payload);
-        setFormSuccess("Publicación actualizada correctamente.");
+        setFormSuccess("Publicacion actualizada correctamente.");
       } else {
         await createPublication(result.payload);
-        setFormSuccess("Publicación creada correctamente.");
+        setFormSuccess("Publicacion creada correctamente.");
       }
 
       resetForm();
       await loadPublications(false);
     } catch (error) {
-      setFormError(getErrorMessage(error));
+      const backendFieldErrors = getFieldErrors(error) as FormErrors;
+
+      setFormErrors(backendFieldErrors);
+      setFormError(backendFieldErrors._form ?? getErrorMessage(error));
     } finally {
       setIsSaving(false);
     }
@@ -285,8 +470,13 @@ function DashboardContent() {
   const handleEdit = (publication: Publication) => {
     setEditingPublication(publication);
     setForm(getFormFromPublication(publication));
+    setFormErrors({});
     setFormError("");
     setFormSuccess("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   const handleDeleteConfirm = async () => {
@@ -309,7 +499,7 @@ function DashboardContent() {
   };
 
   const handleLogout = () => {
-    removeToken();
+    clearSession();
     void navigate("/", { replace: true });
   };
 
@@ -317,6 +507,7 @@ function DashboardContent() {
   const profileContactItems = getContactItems(businessProfile);
   const getDisplayWineryName = (publication: Publication) =>
     businessName || publication.wineryName;
+  const wineryNameError = formErrors.wineryName ?? (!businessName ? FANTASY_NAME_ERROR : "");
 
   return (
     <div className="min-h-screen bg-[#FCF9F6]">
@@ -337,7 +528,7 @@ function DashboardContent() {
               onClick={handleLogout}
               className="rounded-md bg-[#F2B11C] px-3 py-1 text-sm font-semibold text-[#11332C] hover:bg-[#d99b12]"
             >
-              Cerrar sesión
+              Cerrar sesion
             </button>
           </div>
         </nav>
@@ -350,7 +541,7 @@ function DashboardContent() {
               Panel privado
             </p>
             <h1 className="mt-1 text-2xl font-bold text-[#11332C]">
-              {editingPublication ? "Editar publicación" : "Crear publicación"}
+              {editingPublication ? "Editar publicacion" : "Crear publicacion"}
             </h1>
           </div>
 
@@ -368,7 +559,7 @@ function DashboardContent() {
 
           {!businessName ? (
             <div className="mb-4 rounded-md border border-[#F2B11C]/40 bg-[#FCF9F6] px-3 py-2 text-sm text-[#11332C]">
-              Configura el nombre de fantasia desde{" "}
+              Configura el Nombre de fantasía desde{" "}
               <Link
                 to="/profile"
                 className="font-semibold text-[#11332C] underline hover:text-[#F2B11C]"
@@ -379,22 +570,30 @@ function DashboardContent() {
             </div>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <input
+              type="hidden"
+              name="publicationDate"
+              value={form.publicationDate}
+              readOnly
+            />
+
             <div>
               <label
                 htmlFor="publicationTitle"
                 className="text-sm font-semibold text-[#11332C]"
               >
-                Título
+                Titulo
               </label>
               <input
                 id="publicationTitle"
                 type="text"
                 value={form.title}
                 onChange={(event) => updateField("title", event.target.value)}
-                className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
-                required
+                className={getFieldClass("title")}
+                aria-invalid={Boolean(formErrors.title)}
               />
+              {renderFieldError("title")}
             </div>
 
             <div>
@@ -411,12 +610,18 @@ function DashboardContent() {
                 onChange={(event) =>
                   updateField("productName", event.target.value)
                 }
-                className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
-                required
+                className={getFieldClass("productName")}
+                aria-invalid={Boolean(formErrors.productName)}
               />
+              {renderFieldError("productName")}
               <p className="mt-1 text-xs text-[#11332C]/70">
                 Local asociado: {businessName || "sin configurar"}
               </p>
+              {wineryNameError ? (
+                <p className="mt-1 text-xs font-semibold text-red-600">
+                  {wineryNameError}
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -424,7 +629,7 @@ function DashboardContent() {
                 htmlFor="publicationDescription"
                 className="text-sm font-semibold text-[#11332C]"
               >
-                Descripción
+                Descripcion
               </label>
               <textarea
                 id="publicationDescription"
@@ -433,9 +638,16 @@ function DashboardContent() {
                   updateField("description", event.target.value)
                 }
                 rows={4}
-                className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
-                required
+                maxLength={MAX_DESCRIPTION_LENGTH}
+                className={getFieldClass("description")}
+                aria-invalid={Boolean(formErrors.description)}
               />
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                {renderFieldError("description")}
+                <span className="ml-auto text-xs text-[#11332C]/60">
+                  {form.description.length} / {MAX_DESCRIPTION_LENGTH}
+                </span>
+              </div>
             </div>
 
             <div>
@@ -443,15 +655,28 @@ function DashboardContent() {
                 htmlFor="publicationImage"
                 className="text-sm font-semibold text-[#11332C]"
               >
-                Imagen URL
+                Imagen
               </label>
               <input
                 id="publicationImage"
-                type="url"
-                value={form.imageUrl}
-                onChange={(event) => updateField("imageUrl", event.target.value)}
-                className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                onChange={(event) => void handleImageChange(event)}
+                className={getFieldClass("imageUrl")}
+                aria-invalid={Boolean(formErrors.imageUrl)}
               />
+              {renderFieldError("imageUrl")}
+
+              {form.imageUrl ? (
+                <div className="mt-3 overflow-hidden rounded-md border border-[#11332C]/10">
+                  <img
+                    src={form.imageUrl}
+                    alt={form.title || "Preview de publicacion"}
+                    className="h-40 w-full object-cover"
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -460,7 +685,7 @@ function DashboardContent() {
                   htmlFor="publicationCategory"
                   className="text-sm font-semibold text-[#11332C]"
                 >
-                  Categoría
+                  Categoria
                 </label>
                 <select
                   id="publicationCategory"
@@ -468,7 +693,8 @@ function DashboardContent() {
                   onChange={(event) =>
                     updateField("category", event.target.value)
                   }
-                  className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
+                  className={getFieldClass("category")}
+                  aria-invalid={Boolean(formErrors.category)}
                 >
                   <option value="">Seleccionar categoria</option>
                   {getPublicationCategoryOptions(form.category).map(
@@ -479,6 +705,7 @@ function DashboardContent() {
                     )
                   )}
                 </select>
+                {renderFieldError("category")}
               </div>
 
               <div>
@@ -492,7 +719,8 @@ function DashboardContent() {
                   id="publicationType"
                   value={form.type}
                   onChange={(event) => updateField("type", event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
+                  className={getFieldClass("type")}
+                  aria-invalid={Boolean(formErrors.type)}
                 >
                   <option value="">Seleccionar tipo</option>
                   {getPublicationTypeOptions(form.type).map((typeOption) => (
@@ -501,6 +729,7 @@ function DashboardContent() {
                     </option>
                   ))}
                 </select>
+                {renderFieldError("type")}
               </div>
             </div>
 
@@ -515,26 +744,18 @@ function DashboardContent() {
                 <input
                   id="publicationPrice"
                   type="number"
+                  min={0}
+                  step={100}
                   value={form.price}
                   onChange={(event) => updateField("price", event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
+                  className={getFieldClass("price")}
+                  aria-invalid={Boolean(formErrors.price)}
                 />
+                {renderFieldError("price")}
               </div>
 
-              <div>
-                <label
-                  htmlFor="publicationYear"
-                  className="text-sm font-semibold text-[#11332C]"
-                >
-                  Año
-                </label>
-                <input
-                  id="publicationYear"
-                  type="number"
-                  value={form.year}
-                  onChange={(event) => updateField("year", event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#11332C]/20 px-3 py-2 text-[#11332C] outline-none focus:border-[#F2B11C]"
-                />
+              <div className="flex items-end">
+                {renderFieldError("publicationDate")}
               </div>
             </div>
 
@@ -548,7 +769,7 @@ function DashboardContent() {
                   ? "Guardando..."
                   : editingPublication
                     ? "Guardar cambios"
-                    : "Crear publicación"}
+                    : "Crear publicacion"}
               </button>
               {editingPublication ? (
                 <button
@@ -557,7 +778,7 @@ function DashboardContent() {
                   disabled={isSaving}
                   className="rounded-md border border-[#11332C]/20 px-4 py-2 font-semibold text-[#11332C] hover:bg-[#11332C]/5 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  Cancelar edición
+                  Cancelar edicion
                 </button>
               ) : null}
             </div>
@@ -571,7 +792,7 @@ function DashboardContent() {
                 Publicaciones
               </p>
               <h2 className="mt-1 text-2xl font-bold text-[#11332C]">
-                Catálogo administrable
+                Mis Publicaciones
               </h2>
             </div>
             <button
@@ -598,7 +819,7 @@ function DashboardContent() {
 
           {!isLoading && publications.length === 0 ? (
             <div className="rounded-md border border-[#11332C]/10 bg-[#FCF9F6] px-4 py-3 text-[#11332C]">
-              Todavía no hay publicaciones cargadas.
+              Todavia no hay publicaciones cargadas.
             </div>
           ) : null}
 
@@ -606,6 +827,9 @@ function DashboardContent() {
             <div className="space-y-4">
               {publications.map((publication) => {
                 const price = formatCurrency(publication.price);
+                const publicationDate = formatDate(
+                  publication.publicationDate ?? publication.createdAt
+                );
 
                 return (
                   <article
@@ -646,16 +870,16 @@ function DashboardContent() {
                     </div>
 
                     <p className="mt-3 text-sm leading-6 text-gray-700">
-                      {publication.description || "Sin descripción disponible."}
+                      {publication.description || "Sin descripcion disponible."}
                     </p>
 
                     <div className="mt-3 flex flex-wrap gap-3 text-xs text-[#11332C]/70">
                       {publication.category ? (
-                        <span>Categoría: {publication.category}</span>
+                        <span>Categoria: {publication.category}</span>
                       ) : null}
                       {publication.type ? <span>Tipo: {publication.type}</span> : null}
                       {price ? <span>Precio: {price}</span> : null}
-                      {publication.year ? <span>Año: {publication.year}</span> : null}
+                      {publicationDate ? <span>Fecha: {publicationDate}</span> : null}
                       <span>{publication.commentsCount} comentarios</span>
                     </div>
 
@@ -684,10 +908,10 @@ function DashboardContent() {
 
       <ConfirmModal
         isOpen={Boolean(deleteTarget)}
-        title="Eliminar publicación"
-        description={`¿Seguro que querés eliminar "${
-          deleteTarget?.title ?? "esta publicación"
-        }"? Esta acción también la quitará de la home pública.`}
+        title="Eliminar publicacion"
+        description={`Seguro que queres eliminar "${
+          deleteTarget?.title ?? "esta publicacion"
+        }"? Esta accion tambien la quitara de la home publica.`}
         confirmLabel="Eliminar"
         isConfirming={isDeleting}
         onCancel={() => {
