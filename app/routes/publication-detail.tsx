@@ -51,6 +51,9 @@ const getContactItems = (businessProfile: BusinessProfile) =>
     { label: "Teléfono", value: businessProfile.phone.trim() },
   ].filter((item) => item.value);
 
+const getUserDisplayName = (user: AuthUser) =>
+  user.profile?.fantasyName?.trim() || user.username.trim();
+
 export function meta() {
   return [
     { title: "Publicación | Malbec Connected" },
@@ -177,13 +180,10 @@ export default function PublicationDetail() {
 
       setCurrentUser(sessionUser);
 
-      const authorName = sessionUser.username.trim();
-
-      if (!authorName) {
+      if (!getUserDisplayName(sessionUser)) {
         setFormError("No se pudo identificar tu usuario.");
         return;
       }
-
       if (!normalizedComment) {
         setFormError("Ingresá un comentario.");
         return;
@@ -199,7 +199,6 @@ export default function PublicationDetail() {
       }
 
       await createPublicationComment(id, {
-        authorName,
         content: normalizedComment,
         rating: parsedRating,
       });
@@ -323,7 +322,7 @@ export default function PublicationDetail() {
                     {isCheckingSession
                       ? "Verificando sesion..."
                       : currentUser
-                        ? `Comentando como ${currentUser.username}`
+                        ? `Comentando como ${getUserDisplayName(currentUser)}`
                         : "Inicia sesion para comentar con tu usuario."}
                   </p>
 

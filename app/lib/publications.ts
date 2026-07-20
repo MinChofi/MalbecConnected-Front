@@ -33,7 +33,6 @@ export interface Publication {
 }
 
 export interface CreatePublicationCommentInput {
-  authorName: string;
   content: string;
   rating: number;
 }
