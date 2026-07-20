@@ -158,6 +158,35 @@ const getPublicationObject = (response: unknown): ApiRecord | null => {
   return response;
 };
 
+const getPublicationDetailObject = (response: unknown): ApiRecord | null => {
+  if (!isRecord(response)) {
+    return null;
+  }
+
+  const publication = getPublicationObject(response);
+
+  if (!publication) {
+    return null;
+  }
+
+  const detailPublication = { ...publication };
+
+  for (const key of ["comments", "comentarios", "reviews", "valoraciones"]) {
+    const value = response[key];
+
+    if (Array.isArray(value)) {
+      detailPublication.comments = value;
+      break;
+    }
+  }
+
+  if (response.rating !== undefined) {
+    detailPublication.rating = response.rating;
+  }
+
+  return detailPublication;
+};
+
 const normalizeComment = (
   comment: unknown,
   index: number
@@ -222,6 +251,7 @@ const normalizePublication = (publication: unknown): Publication | null => {
       "averageRating",
       "avgRating",
       "ratingAverage",
+      "rating.average",
       "promedio",
       "puntajePromedio",
       "score",
@@ -234,6 +264,7 @@ const normalizePublication = (publication: unknown): Publication | null => {
     getNumber(publication, [
       "ratingsCount",
       "ratingCount",
+      "rating.count",
       "valoracionesCount",
       "reviewsCount",
     ]) ??
@@ -317,7 +348,7 @@ export const getPublication = async (id: string) => {
   const response = await apiClient<unknown>(
     `${PUBLICATIONS_PATH}/${encodeURIComponent(id)}`
   );
-  const publication = normalizePublication(getPublicationObject(response));
+  const publication = normalizePublication(getPublicationDetailObject(response));
 
   if (!publication) {
     throw new Error("No se encontró la publicación solicitada");
