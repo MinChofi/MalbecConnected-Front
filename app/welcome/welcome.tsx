@@ -31,17 +31,23 @@ export function Welcome() {
           className="flex w-[90%] max-w-6xl flex-col border-b border-b-amber-400 pb-8 md:w-[70%]"
         >
           <h1 className="mb-4 text-center text-4xl text-[#F2B11C] underline">
-            About us
+            Acerca de nosotros
           </h1>
           <div className="grid gap-6 md:grid-cols-2">
             <p className="text-gray-700">
-              Malbec Connected reune publicaciones de vinerias y bodegas para
-              que cada persona pueda descubrir nuevos productos, conocer su
-              historia y compartir comentarios con otros amantes del vino.
+              En Malbec-Connected creemos que cada vino cuenta una historia que
+              merece ser conocida en el mundo. Somos una plataforma digital que
+              conecta bodegas boutique argentinas con restaurantes y vinotecas
+              internacionales, simplificando el proceso de comercialización y
+              brindando una experiencia basada en la calidad, la selección
+              personalizada y la identidad de cada productor. Nuestro objetivo
+              es acercar el auténtico vino argentino a nuevos mercados, creando
+              vínculos comerciales duraderos y de confianza.
             </p>
-            <div
-              aria-hidden="true"
-              className="min-h-48 rounded-lg bg-[#11332C]/10"
+            <img
+              src="/about-us-photo.jpeg"
+              alt="Botellas y copas de vino argentino en una mesa"
+              className="h-full min-h-48 w-full rounded-lg object-cover"
             />
           </div>
         </section>
@@ -51,17 +57,24 @@ export function Welcome() {
           className="flex w-[90%] max-w-6xl flex-col border-b border-b-amber-400 pb-8 md:w-[70%]"
         >
           <h1 className="mb-4 text-center text-4xl text-[#F2B11C] underline">
-            Nuestra Historia
+            Nuestra historia
           </h1>
           <div className="grid gap-6 md:grid-cols-2">
-            <div
-              aria-hidden="true"
-              className="min-h-48 rounded-lg bg-[#F2B11C]/20"
+            <img
+              src="/our-history-photo.jpeg"
+              alt="Viñedo argentino con paisaje de montaña"
+              className="h-full min-h-48 w-full rounded-lg object-cover"
             />
             <p className="text-gray-700">
-              La propuesta nace para conectar a productores, comercios y
-              consumidores en un mismo espacio publico, donde los vinos puedan
-              mostrarse con informacion real y opiniones de la comunidad.
+              Malbec-Connected nace al identificar una necesidad concreta:
+              muchas pequeñas y medianas bodegas elaboran vinos de excelencia,
+              pero encuentran grandes dificultades para llegar al mercado
+              internacional. A partir de esa realidad, surge la idea de crear
+              una plataforma que combine tecnología, logística y promoción para
+              reducir esas barreras. Hoy trabajamos para que cada botella
+              represente no solo un producto, sino también la historia, la
+              tradición y la pasión de quienes hacen del vino argentino un
+              referente mundial.
             </p>
           </div>
         </section>
