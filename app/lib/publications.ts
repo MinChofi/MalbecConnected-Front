@@ -15,7 +15,11 @@ export interface PublicationComment {
 export interface Publication {
   id: string;
   title: string;
+  businessName: string;
   wineryName: string;
+  contactEmail?: string;
+  address?: string;
+  phone?: string;
   productName: string;
   description: string;
   imageUrl?: string;
@@ -268,24 +272,45 @@ const normalizePublication = (publication: unknown): Publication | null => {
       "reviewsCount",
     ]) ??
     (commentRatings.length > 0 ? commentRatings.length : commentsCount);
+  const businessName = getString(publication, [
+    "businessName",
+    "business.name",
+  ]);
+  const wineryName = getString(publication, [
+    "wineryName",
+    "bodegaName",
+    "vineriaName",
+    "winery.name",
+    "bodega.name",
+    "vineria.name",
+    "winery",
+    "bodega",
+    "vineria",
+  ]);
 
   return {
     id,
     title:
       getString(publication, ["title", "titulo", "name"]) ??
       "Publicación sin título",
-    wineryName:
-      getString(publication, [
-        "wineryName",
-        "bodegaName",
-        "vineriaName",
-        "winery.name",
-        "bodega.name",
-        "vineria.name",
-        "winery",
-        "bodega",
-        "vineria",
-      ]) ?? "Bodega sin nombre",
+    businessName: businessName ?? wineryName ?? "Bodega sin nombre",
+    wineryName: wineryName ?? businessName ?? "Bodega sin nombre",
+    contactEmail: getString(publication, [
+      "contactEmail",
+      "email",
+      "business.contactEmail",
+      "business.email",
+    ]),
+    address: getString(publication, [
+      "address",
+      "direccion",
+      "business.address",
+    ]),
+    phone: getString(publication, [
+      "phone",
+      "telefono",
+      "business.phone",
+    ]),
     productName:
       getString(publication, [
         "productName",

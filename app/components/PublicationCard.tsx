@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 
-import { getBusinessProfile } from "~/lib/profile";
 import type { Publication } from "~/lib/publications";
 
 interface PublicationCardProps {
@@ -18,22 +17,17 @@ const getShortDescription = (description: string) => {
   return `${description.slice(0, 147).trim()}...`;
 };
 
-const getContactItems = () => {
-  const profile = getBusinessProfile();
-
-  return {
-    businessName: profile.fantasyName.trim(),
-    items: [
-      { label: "Correo", value: profile.contactEmail.trim() },
-      { label: "Dirección", value: profile.address.trim() },
-      { label: "Teléfono", value: profile.phone.trim() },
-    ].filter((item) => item.value),
-  };
-};
+const getContactItems = (publication: Publication) =>
+  [
+    { label: "Correo", value: publication.contactEmail?.trim() },
+    { label: "Dirección", value: publication.address?.trim() },
+    { label: "Teléfono", value: publication.phone?.trim() },
+  ].filter((item): item is { label: string; value: string } =>
+    Boolean(item.value));
 
 export function PublicationCard({ publication }: PublicationCardProps) {
-  const { businessName, items: contactItems } = getContactItems();
-  const displayWineryName = businessName || publication.wineryName;
+  const contactItems = getContactItems(publication);
+  const displayWineryName = publication.businessName || publication.wineryName;
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-lg border border-[#11332C]/10 bg-white shadow-sm">

@@ -5,23 +5,12 @@ import { PublicNavbar } from "~/components/PublicChrome";
 import { ApiError, getErrorMessage } from "~/lib/apiClient";
 import { getStoredUser, type AuthUser } from "~/lib/auth";
 import {
-  getBusinessProfile,
-  type BusinessProfile,
-} from "~/lib/profile";
-import {
   createPublicationComment,
   getPublication,
   type Publication,
 } from "~/lib/publications";
 
 type DetailStatus = "loading" | "success" | "error";
-
-const emptyProfile: BusinessProfile = {
-  fantasyName: "",
-  address: "",
-  phone: "",
-  contactEmail: "",
-};
 
 const formatRating = (rating: number) =>
   rating > 0 ? rating.toFixed(1) : "Sin puntuar";
@@ -44,12 +33,13 @@ const formatDate = (date?: string) => {
   }).format(parsedDate);
 };
 
-const getContactItems = (businessProfile: BusinessProfile) =>
+const getContactItems = (publication: Publication) =>
   [
-    { label: "Correo", value: businessProfile.contactEmail.trim() },
-    { label: "Dirección", value: businessProfile.address.trim() },
-    { label: "Teléfono", value: businessProfile.phone.trim() },
-  ].filter((item) => item.value);
+    { label: "Correo", value: publication.contactEmail?.trim() },
+    { label: "Dirección", value: publication.address?.trim() },
+    { label: "Teléfono", value: publication.phone?.trim() },
+  ].filter((item): item is { label: string; value: string } =>
+    Boolean(item.value));
 
 const getUserDisplayName = (user: AuthUser) =>
   user.profile?.fantasyName?.trim() || user.username.trim();
@@ -68,8 +58,6 @@ export default function PublicationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [publication, setPublication] = useState<Publication | null>(null);
-  const [businessProfile, setBusinessProfile] =
-    useState<BusinessProfile>(emptyProfile);
   const [status, setStatus] = useState<DetailStatus>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -110,9 +98,6 @@ export default function PublicationDetail() {
     void loadPublication();
   }, [loadPublication]);
 
-  useEffect(() => {
-    setBusinessProfile(getBusinessProfile());
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -219,10 +204,9 @@ export default function PublicationDetail() {
     }
   };
 
-  const businessName = businessProfile.fantasyName.trim();
-  const profileContactItems = getContactItems(businessProfile);
+  const publicationContactItems = publication ? getContactItems(publication) : [];
   const displayWineryName = publication
-    ? businessName || publication.wineryName
+    ? publication.businessName || publication.wineryName
     : "";
 
   return (
@@ -287,9 +271,9 @@ export default function PublicationDetail() {
                   <span>{publication.ratingsCount} valoraciones</span>
                 </div>
 
-                {profileContactItems.length > 0 ? (
+                {publicationContactItems.length > 0 ? (
                   <div className="flex flex-wrap gap-3 border-t border-[#11332C]/10 pt-4 text-sm text-[#11332C]/70">
-                    {profileContactItems.map((item) => (
+                    {publicationContactItems.map((item) => (
                       <span key={item.label}>
                         {item.label}: {item.value}
                       </span>
