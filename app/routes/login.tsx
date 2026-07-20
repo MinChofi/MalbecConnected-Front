@@ -182,6 +182,12 @@ export default function Login() {
         >
           {isSubmitting ? "Ingresando..." : "Entrar"}
         </button>
+        <Link
+          to="/"
+          className="block w-full rounded border border-[#11332C]/30 p-2 text-center text-sm font-semibold text-[#11332C] transition hover:border-[#11332C]/60 hover:bg-white/60"
+        >
+          Volver
+        </Link>
 
         <div className="mt-4 flex flex-row items-center justify-center gap-2">
           <p className="text-sm text-black">¿No tenés cuenta?</p>

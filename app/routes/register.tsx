@@ -143,6 +143,12 @@ export default function Register() {
         >
           {isSubmitting ? "Registrando..." : "Registrarse"}
         </button>
+        <Link
+          to="/"
+          className="block w-full rounded border border-[#11332C]/30 p-2 text-center text-sm font-semibold text-[#11332C] transition hover:border-[#11332C]/60 hover:bg-white/60"
+        >
+          Volver
+        </Link>
 
         <div className="flex flex-row gap-2 justify-center items-center mt-4">
           <p className="text-black text-sm">¿Ya tienes cuenta?</p>
